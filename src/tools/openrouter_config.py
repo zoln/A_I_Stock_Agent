@@ -1,10 +1,10 @@
 import os
 import time
 import logging
-from google import genai
 from dotenv import load_dotenv
 from dataclasses import dataclass
 import backoff
+from Factory import ChatModelFactory
 
 # 设置日志记录
 logger = logging.getLogger('api_calls')
@@ -82,20 +82,12 @@ else:
     logger.warning(f"{ERROR_ICON} 未找到环境变量文件: {env_path}")
 
 # 验证环境变量
-api_key = os.getenv("GEMINI_API_KEY")
-model = os.getenv("GEMINI_MODEL")
+api_key = os.getenv("API_KEY")
+model = os.getenv("MODEL_NAME", "gpt-4-turbo")
 
-if not api_key:
-    logger.error(f"{ERROR_ICON} 未找到 GEMINI_API_KEY 环境变量")
-    raise ValueError("GEMINI_API_KEY not found in environment variables")
-if not model:
-    model = "gemini-1.5-flash"
-    logger.info(f"{WAIT_ICON} 使用默认模型: {model}")
-
-# 初始化 Gemini 客户端
-client = genai.Client(api_key=api_key)
-logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
-
+# 初始化客户端
+client = ChatModelFactory.get_model(model)
+logger.info(f"{SUCCESS_ICON} {model} 客户端初始化成功")
 
 @backoff.on_exception(
     backoff.expo,
@@ -104,17 +96,16 @@ logger.info(f"{SUCCESS_ICON} Gemini 客户端初始化成功")
     max_time=300,
     giveup=lambda e: "AFC is enabled" not in str(e)
 )
-def generate_content_with_retry(model, contents, config=None):
+def generate_content_with_retry(contents, config=None):
     """带重试机制的内容生成函数"""
     try:
-        logger.info(f"{WAIT_ICON} 正在调用 Gemini API...")
+        logger.info(f"{WAIT_ICON} 正在调用 API...")
         logger.info(f"请求内容: {contents[:500]}..." if len(
             str(contents)) > 500 else f"请求内容: {contents}")
         logger.info(f"请求配置: {config}")
 
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
+        response = client.stream(
+            contents,
             config=config
         )
 
@@ -164,7 +155,6 @@ def get_chat_completion(messages, model=None, max_retries=3, initial_retry_delay
 
                 # 调用 API
                 response = generate_content_with_retry(
-                    model=model,
                     contents=prompt.strip(),
                     config=config
                 )
